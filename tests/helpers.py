@@ -1,17 +1,32 @@
-"""Apoio dos testes: servidor local em thread (modo simulado) e requisições HTTP cruas."""
+"""Apoio dos testes: servidor local em thread e requisições HTTP cruas.
+
+Os testes nunca chamam a Celcoin e nunca leem o .env.local: usam CONFIG_FICTICIA (URLs de sandbox falsas,
+sem rede) e `mock.patch` nas chamadas à API.
+"""
 import contextlib
 import socket
 import threading
 from http.server import ThreadingHTTPServer
 
+import credit_client as C
 import server
+
+CONFIG_FICTICIA = {
+    'CREDIT_CLIENT_ID': 'id-de-teste', 'CREDIT_CLIENT_SECRET': 'segredo-de-teste',
+    'CREDIT_API_URL': 'https://sandbox.platform.exemplo.test', 'CREDIT_AUTH_URL': 'https://sandbox.auth.exemplo.test/oauth2/token',
+    'CREDIT_PRODUCT_ID': '00000000-0000-0000-0000-000000000001',
+}
+
+
+def limpar_cliente():
+    C.API = C.AUTH = None
+    C.ENV.clear()
 
 
 @contextlib.contextmanager
-def servidor(modo_real=False):
-    """Sobe o servidor numa porta livre. Por padrão em modo simulado (nenhuma chamada externa)."""
-    antes = (server.MODO, server.REAL)
-    server.MODO, server.REAL = ('real', True) if modo_real else ('simulado', False)
+def servidor():
+    """Sobe o servidor numa porta livre, com configuração fictícia válida (o cliente da API fica configurado, sem rede)."""
+    C.configurar(dict(CONFIG_FICTICIA))
     httpd = ThreadingHTTPServer(('127.0.0.1', 0), server.H)
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()
@@ -20,7 +35,7 @@ def servidor(modo_real=False):
     finally:
         httpd.shutdown()
         httpd.server_close()
-        server.MODO, server.REAL = antes
+        limpar_cliente()
 
 
 def requisicao_crua(porta, metodo='GET', caminho='/', host='localhost', corpo=b'', headers_extra=None):

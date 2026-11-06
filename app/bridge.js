@@ -1,17 +1,15 @@
 /* Ponte entre as telas do Studio e a API (/api/*). Injetada pelo servidor no lugar de `function go() {}`.
    Nada aqui guarda segredos: as credenciais ficam só no servidor. */
 var BR = (function () {
-  var real = false, timer = null;
+  var timer = null;
   function api(method, path, body) {
     return fetch(path, { method: method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined })
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.erro || ("HTTP " + r.status)); return j; }); });
   }
   function aplicarReal() { if (S.real) { try { CET_TXT = pct(S.real.cet) + " ao ano"; } catch (e) {} } }
   return {
-    modo: function () { return api("GET", "/api/modo").then(function (m) { real = !!m.real; return real; }, function () { return false; }); },
     before: function (page) {
-      return BR.modo().then(function (ok) {
-        if (!ok) return;
+      return Promise.resolve().then(function () {
         aplicarReal();
         if (page === "solicitacoes") {
           return api("POST", "/api/solicitacoes", { cpf: (S.dados && S.dados.cpf) || "" }).then(function (l) { S.lista = l; }, function () { S.lista = null; });
@@ -49,8 +47,7 @@ var BR = (function () {
           api("GET", "/api/status/" + S.appId).then(function (s) { S.statusReal = s.status; S.statusMsg = s.descricao; persist(); if (!fn(s.status, s)) tick(); }, function () { tick(); });
         }, 3500);
       })();
-    },
-    ativo: function () { return real; }
+    }
   };
 })();
 // Flags só em memória (nunca persistir): impedem ações duplicadas enquanto uma chamada está em andamento.
@@ -64,7 +61,6 @@ function bloquearBotoes() {
 }
 function go(p) {
   var destino = function (q) { persist(); location.href = "/" + (q === "index" ? "" : q); };
-  if (!BR.ativo()) return destino(p);
   if (PAGE === "preparando" && (p === "assinatura" || p === "recusada") && !S.appId) {
     if (criandoAgora) return; criandoAgora = true; bloquearBotoes();
     return BR.solicitar().then(function () { criandoAgora = false; destino("assinatura"); },

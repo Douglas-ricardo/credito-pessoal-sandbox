@@ -7,7 +7,7 @@ Data: 2026-11-06. Tudo foi feito no **ambiente de teste** da Celcoin. Nenhum din
 1. Copie suas credenciais do sandbox de Crédito para `.env.local` (esse arquivo não vai para o git):
    `CREDIT_CLIENT_ID`, `CREDIT_CLIENT_SECRET`, `CREDIT_API_URL`, `CREDIT_AUTH_URL`, `CREDIT_PRODUCT_ID`.
 2. Rode `python app/server.py` e abra `http://localhost:3000`.
-3. Sem o `.env.local` o app abre em **modo simulado** (faixa preta no rodapé avisa qual modo está ativo).
+3. Sem configuração válida o servidor **não inicia** (não existe mais modo simulado); a faixa preta no rodapé lembra que é o sandbox.
 4. Para zerar a jornada: `http://localhost:3000/reset`.
 
 ## O que deu certo

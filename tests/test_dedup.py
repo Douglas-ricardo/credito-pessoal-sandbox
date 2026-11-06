@@ -130,7 +130,7 @@ class DeduplicacaoDeSolicitacao(unittest.TestCase):
             respostas.append(requisicao_crua(porta, 'POST', '/api/solicitar', corpo=json.dumps(CORPO).encode(),
                                              headers_extra={'Content-Type': 'application/json'}))
 
-        with mock.patch.object(server, 'solicitar', side_effect=lenta), servidor(modo_real=True) as porta:
+        with mock.patch.object(server, 'solicitar', side_effect=lenta), servidor() as porta:
             ts = [threading.Thread(target=post, args=(porta,)) for _ in range(2)]
             for t in ts:
                 t.start()

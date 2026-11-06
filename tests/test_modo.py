@@ -1,3 +1,6 @@
+"""Configuração do servidor: não existe modo simulado; sem configuração válida o servidor não inicia."""
+import contextlib
+import io
 import os
 import subprocess
 import sys
@@ -5,14 +8,9 @@ import tempfile
 import unittest
 
 from tests import APP, RAIZ
+from tests.helpers import CONFIG_FICTICIA, limpar_cliente
 import credit_client as C
 import server
-
-CONFIG_FICTICIA = {
-    'CREDIT_CLIENT_ID': 'id-de-teste', 'CREDIT_CLIENT_SECRET': 'segredo-de-teste',
-    'CREDIT_API_URL': 'https://sandbox.platform.exemplo.test', 'CREDIT_AUTH_URL': 'https://sandbox.auth.exemplo.test/oauth2/token',
-    'CREDIT_PRODUCT_ID': '00000000-0000-0000-0000-000000000001',
-}
 
 
 def env_limpo(**extra):
@@ -22,17 +20,12 @@ def env_limpo(**extra):
     return env
 
 
-class ModoDoServidor(unittest.TestCase):
+class ConfiguracaoDoServidor(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.inexistente = os.path.join(self.tmp.name, 'nao-existe.env')
         self.addCleanup(self.tmp.cleanup)
-        self.addCleanup(self._restaurar)
-
-    def _restaurar(self):
-        server.MODO, server.REAL = 'simulado', False
-        C.API = C.AUTH = None
-        C.ENV.clear()
+        self.addCleanup(limpar_cliente)
 
     def _arquivo(self, conteudo):
         caminho = os.path.join(self.tmp.name, 'config.env')
@@ -40,64 +33,78 @@ class ModoDoServidor(unittest.TestCase):
             f.write(conteudo)
         return caminho
 
-    def test_sem_arquivo_e_sem_modo_segue_simulado(self):
-        modo, _ = server.resolver_modo({}, self.inexistente)
-        self.assertEqual(modo, 'simulado')
+    def test_nao_ha_mais_modo_simulado_no_codigo(self):
+        for nome in ('MODO', 'REAL', 'resolver_modo'):
+            self.assertFalse(hasattr(server, nome), f'server.{nome} não deveria existir')
 
-    def test_modo_simulado_explicito_ignora_arquivo(self):
-        arq = self._arquivo('CREDIT_CLIENT_ID=lixo\n')
-        modo, _ = server.resolver_modo({'CREDIT_MODE': 'simulado'}, arq)
-        self.assertEqual(modo, 'simulado')
-
-    def test_real_sem_configuracao_falha_em_vez_de_cair_em_simulado(self):
+    def test_sem_arquivo_e_sem_variaveis_falha(self):
         with self.assertRaises(C.ConfigError) as cm:
-            server.resolver_modo({'CREDIT_MODE': 'real'}, self.inexistente)
-        self.assertIn('Modo real', str(cm.exception))
+            server.configurar({}, self.inexistente)
         self.assertIn('CREDIT_CLIENT_ID', str(cm.exception))
+        self.assertIn('.env.local', str(cm.exception))
 
-    def test_arquivo_presente_sem_modo_exige_real_valido(self):
+    def test_arquivo_incompleto_falha(self):
         arq = self._arquivo('CREDIT_CLIENT_ID=so-um-campo\n')
-        with self.assertRaises(C.ConfigError):
-            server.resolver_modo({}, arq)
-
-    def test_real_com_url_que_nao_e_sandbox_falha(self):
-        cfg = dict(CONFIG_FICTICIA, CREDIT_MODE='real', CREDIT_API_URL='https://producao.exemplo.test')
         with self.assertRaises(C.ConfigError) as cm:
-            server.resolver_modo(cfg, self.inexistente)
+            server.configurar({}, arq)
+        self.assertIn('CREDIT_CLIENT_SECRET', str(cm.exception))
+
+    def test_url_que_nao_e_sandbox_falha(self):
+        cfg = dict(CONFIG_FICTICIA, CREDIT_API_URL='https://producao.exemplo.test')
+        with self.assertRaises(C.ConfigError) as cm:
+            server.configurar(cfg, self.inexistente)
         self.assertIn('sandbox', str(cm.exception))
 
-    def test_modo_invalido_falha(self):
-        with self.assertRaises(C.ConfigError):
-            server.resolver_modo({'CREDIT_MODE': 'talvez'}, self.inexistente)
+    def test_configuracao_so_por_variaveis_de_ambiente_funciona(self):
+        server.configurar(dict(CONFIG_FICTICIA), self.inexistente)
+        self.assertEqual(C.ENV['CREDIT_PRODUCT_ID'], CONFIG_FICTICIA['CREDIT_PRODUCT_ID'])
 
-    def test_real_valido_ativa_o_modo(self):
-        server.configurar(dict(CONFIG_FICTICIA, CREDIT_MODE='real'), self.inexistente)
-        self.assertTrue(server.REAL)
-        self.assertEqual(server.MODO, 'real')
+    def test_ambiente_tem_prioridade_sobre_o_arquivo(self):
+        arq = self._arquivo('\n'.join(f'{k}={v}' for k, v in CONFIG_FICTICIA.items()) + '\n')
+        outro = '00000000-0000-0000-0000-0000000000ff'
+        server.configurar({'CREDIT_PRODUCT_ID': outro}, arq)
+        self.assertEqual(C.ENV['CREDIT_PRODUCT_ID'], outro)
+
+    def test_credit_mode_e_ignorada_com_aviso_e_nao_liga_simulado(self):
+        erro = io.StringIO()
+        with contextlib.redirect_stderr(erro):
+            server.configurar(dict(CONFIG_FICTICIA, CREDIT_MODE='simulado'), self.inexistente)
+        self.assertIn('CREDIT_MODE foi removida', erro.getvalue())
+        self.assertIsNotNone(C.API)                      # o cliente da API continua ativo: nada de protótipo
+
+    def test_credit_mode_simulado_sem_configuracao_continua_falhando(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(C.ConfigError):
+                server.configurar({'CREDIT_MODE': 'simulado'}, self.inexistente)
 
     def test_mensagem_de_erro_nao_vaza_segredo(self):
-        cfg = dict(CONFIG_FICTICIA, CREDIT_MODE='real', CREDIT_API_URL='https://producao.exemplo.test')
+        cfg = dict(CONFIG_FICTICIA, CREDIT_API_URL='https://producao.exemplo.test')
         with self.assertRaises(C.ConfigError) as cm:
-            server.resolver_modo(cfg, self.inexistente)
+            server.configurar(cfg, self.inexistente)
         self.assertNotIn('segredo-de-teste', str(cm.exception))
 
-    def test_processo_real_sem_configuracao_nao_inicia(self):
-        """CREDIT_MODE=real sem configuração: o processo sai com erro e não vira simulado."""
+    def test_processo_sem_configuracao_nao_inicia(self):
         r = subprocess.run([sys.executable, os.path.join(APP, 'server.py')], capture_output=True, text=True, timeout=30,
-                           cwd=RAIZ, env=env_limpo(CREDIT_MODE='real', CREDIT_ENV_FILE=self.inexistente, PORT='0'))
+                           cwd=RAIZ, env=env_limpo(CREDIT_ENV_FILE=self.inexistente, PORT='0'))
         self.assertNotEqual(r.returncode, 0)
         self.assertIn('ERRO de configuração', r.stderr)
-        self.assertNotIn('modo simulado', r.stdout)
+        self.assertNotIn('http://', r.stdout)
 
-    def test_processo_sem_nada_inicia_em_simulado(self):
+    def test_processo_com_credit_mode_simulado_e_sem_configuracao_nao_inicia(self):
+        r = subprocess.run([sys.executable, os.path.join(APP, 'server.py')], capture_output=True, text=True, timeout=30,
+                           cwd=RAIZ, env=env_limpo(CREDIT_MODE='simulado', CREDIT_ENV_FILE=self.inexistente, PORT='0'))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('ERRO de configuração', r.stderr)
+
+    def test_processo_com_configuracao_valida_inicia_no_sandbox(self):
         p = subprocess.Popen([sys.executable, os.path.join(APP, 'server.py')], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             text=True, cwd=RAIZ, env=env_limpo(CREDIT_ENV_FILE=self.inexistente, PORT='0'))
+                             text=True, cwd=RAIZ, env=env_limpo(CREDIT_ENV_FILE=self.inexistente, PORT='0', **CONFIG_FICTICIA))
         try:
             linha = p.stdout.readline()
         finally:
             p.kill()
             p.communicate()
-        self.assertIn('modo simulado', linha)
+        self.assertIn('SANDBOX da Celcoin', linha)
 
 
 if __name__ == '__main__':

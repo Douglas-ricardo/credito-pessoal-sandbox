@@ -1,6 +1,5 @@
 import contextlib
 import io
-import json
 import os
 import re
 import unittest
@@ -18,7 +17,7 @@ def original(tela):
         return f.read()
 
 
-class RotasEmModoSimulado(unittest.TestCase):
+class Rotas(unittest.TestCase):
     def test_as_12_rotas_respondem_200_sem_avisos_de_patch(self):
         erro = io.StringIO()
         with contextlib.redirect_stderr(erro), servidor() as porta:
@@ -31,18 +30,15 @@ class RotasEmModoSimulado(unittest.TestCase):
                     self.assertIn('<div id="app">', corpo.decode('utf-8'))
         self.assertEqual(erro.getvalue(), '', 'nenhum padrão de patch deve faltar (nada no stderr)')
 
-    def test_modo_simulado_e_avisado_na_tela_e_na_api(self):
+    def test_sempre_sandbox_na_tela_e_sem_resquicio_de_modo_simulado(self):
         with servidor() as porta:
-            self.assertEqual(json.loads(requisicao_crua(porta, caminho='/api/modo')[2]), {'real': False})
-            html = requisicao_crua(porta, caminho='/valor')[2].decode('utf-8')
-            self.assertIn('MODO SIMULADO', html)
-            self.assertNotIn('SANDBOX CELCOIN', html)
-
-    def test_modo_simulado_nao_chama_a_api(self):
-        with servidor() as porta:
-            for caminho in ('/api/solicitar', '/api/simular', '/api/solicitacoes', '/api/assinar', '/api/retentar'):
-                with self.subTest(caminho=caminho):
-                    self.assertEqual(requisicao_crua(porta, 'POST', caminho, corpo=b'{}')[0], 503)
+            for tela in server.ROUTES:
+                with self.subTest(tela=tela):
+                    html = requisicao_crua(porta, caminho='/' if tela == 'index' else '/' + tela)[2].decode('utf-8')
+                    self.assertIn('SANDBOX CELCOIN', html)
+                    self.assertNotIn('MODO SIMULADO', html)
+                    self.assertNotIn('/api/modo', html)
+            self.assertEqual(requisicao_crua(porta, caminho='/api/modo')[0], 404)
 
     def test_rota_inexistente_responde_404(self):
         with servidor() as porta:

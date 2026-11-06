@@ -1,10 +1,8 @@
 """Servidor local (somente biblioteca padrão). Serve as 12 telas do Studio (../concepts), ligadas à API de Crédito
-do SANDBOX da Celcoin no modo real, ou com dados do protótipo no modo simulado.
+do SANDBOX da Celcoin.
 
-Modo (variável CREDIT_MODE, do ambiente ou do .env.local):
-  simulado  nenhuma chamada à Celcoin.
-  real      exige configuração válida; se faltar algo o servidor NÃO inicia (não cai em simulado).
-  (vazio)   sem .env.local → simulado; com .env.local → real.
+Não existe modo simulado: o app sempre fala com o sandbox. A configuração (.env.local ou variáveis CREDIT_* do
+ambiente) precisa estar completa e válida; se faltar algo, o servidor NÃO inicia e diz o que falta.
 """
 import datetime, json, os, re, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,42 +24,35 @@ ROUTES = {'index': '00-ofertas', 'valor': '01-valor', 'vencimento': '02-vencimen
 MAGIC_PIX = '4ca519ef-0ccc-4c41-b58b-c88f1f47d8ab'
 FUNDING_ID = 'f9405537-e99b-43d5-91fc-df23262c8cce'
 TAXA_MES = 0.0299
-MODO = 'simulado'
-REAL = False
 HOST_OK = re.compile(r'(localhost|127\.0\.0\.1)(:\d{1,5})?', re.IGNORECASE)
 
 
-def resolver_modo(environ=None, env_file=None):
-    """Decide o modo e valida a configuração. Retorna (modo, config). Levanta ConfigError, nunca cai em simulado por erro."""
+def carregar_config(environ=None, env_file=None):
+    """Junta o arquivo de configuração (.env.local ou CREDIT_ENV_FILE) com as variáveis CREDIT_* do ambiente
+    (o ambiente tem prioridade). Não valida; quem valida é credit_client.configurar()."""
     environ = os.environ if environ is None else environ
     env_file = env_file or environ.get('CREDIT_ENV_FILE') or C.ENV_FILE_PADRAO
-    existe = os.path.isfile(env_file)
     arquivo = {}
-    if existe:
+    if os.path.isfile(env_file):
         try:
             arquivo = C.load_env(env_file)
         except (OSError, UnicodeDecodeError) as e:
             raise ConfigError(f'Não consegui ler o arquivo de configuração ({type(e).__name__}).') from None
-    pedido = (environ.get('CREDIT_MODE') or arquivo.get('CREDIT_MODE') or '').strip().lower()
-    if pedido not in ('', 'real', 'simulado'):
-        raise ConfigError(f'CREDIT_MODE inválido: "{pedido}". Use "real" ou "simulado".')
-    if not pedido:
-        pedido = 'real' if existe else 'simulado'
-    if pedido == 'simulado':
-        return 'simulado', {}
     cfg = {**arquivo, **{k: v for k, v in environ.items() if k.startswith('CREDIT_')}}
-    try:
-        C.configurar(cfg)
-    except ConfigError as e:
-        raise ConfigError(f'Modo real sem configuração válida: {e} (use CREDIT_MODE=simulado para rodar sem a API)') from None
-    return 'real', cfg
+    if 'CREDIT_MODE' in cfg:
+        print('AVISO: CREDIT_MODE foi removida e é ignorada. O app sempre usa o sandbox da Celcoin.', file=sys.stderr)
+    return cfg
 
 
 def configurar(environ=None, env_file=None):
-    """Aplica o modo ao estado do servidor. Levanta ConfigError se o modo real estiver mal configurado."""
-    global MODO, REAL
-    modo, _ = resolver_modo(environ, env_file)
-    MODO, REAL = modo, modo == 'real'
+    """Carrega e valida a configuração e ativa o cliente da API. Levanta ConfigError se algo faltar ou for inválido."""
+    cfg = carregar_config(environ, env_file)
+    try:
+        C.configurar(cfg)
+    except ConfigError as e:
+        raise ConfigError(f'Configuração inválida: {e}. Copie .env.example para .env.local e preencha.') from None
+    return cfg
+
 
 STORE = ('var store = (function(){try{var j=sessionStorage.getItem("credito");if(j)return JSON.parse(j)}catch(e){}'
          'return{cfg:{},s:{}}})(); store.cfg=store.cfg||{}; store.s=store.s||{};')
@@ -74,8 +65,7 @@ WATCH = ('BR.watch(function(st,x){ if(st==="ISSUED"){go("liberado");return true}
 
 
 def banner():
-    t = ('SANDBOX CELCOIN — integração real com a API de Crédito (ambiente de teste)' if REAL
-         else 'MODO SIMULADO — sem integração com a API de Crédito da Celcoin')
+    t = 'SANDBOX CELCOIN — integração real com a API de Crédito (ambiente de teste)'
     return ('<div style="position:fixed;bottom:0;left:0;right:0;z-index:99999;background:#222;color:#fff;font:11px Inter,sans-serif;'
             'text-align:center;padding:3px;pointer-events:none">' + t + '</div>')
 
@@ -139,7 +129,7 @@ def _definicoes(bridge):
         # "Tentar de novo": retentativa real de desembolso (a Celcoin não retenta sozinha)
         ('tentar', _literal(
             'handlers.tentar = function () { S.cenarioOk = true;',
-            'handlers.tentar = function () { if (BR.ativo() && S.appId) { BR.retentar().then(function () { S.cenarioOk = true; S.status = "desembolso"; go("acompanhamento"); }, '
+            'handlers.tentar = function () { if (S.appId) { BR.retentar().then(function () { S.cenarioOk = true; S.status = "desembolso"; go("acompanhamento"); }, '
             'function (e) { var a = $("#aviso"); if (a) a.innerHTML = alertBox("Não foi possível tentar de novo", String(e.message || e), { destructive: true }); }); return; } S.cenarioOk = true;')),
         # "Minhas solicitações": lista real (BR.before carrega S.lista); sem integração, mantém os dados do protótipo
         ('itens', _literal('var itens = (atual', 'var itens = S.lista ? S.lista : (atual')),
@@ -358,9 +348,7 @@ class H(BaseHTTPRequestHandler):
         if not self.host_permitido():
             return
         p = unquote(urlsplit(self.path).path).strip('/') or 'index'
-        if p == 'api/modo':
-            return self.json(200, {'real': REAL})
-        if p.startswith('api/status/') and REAL:
+        if p.startswith('api/status/'):
             try:
                 st, g = C.call('GET', f"/banking/originator/applications/{p.split('/')[-1]}")
                 if st != 200:
@@ -397,8 +385,6 @@ class H(BaseHTTPRequestHandler):
         if not self.host_permitido():
             return
         p = urlsplit(self.path).path.strip('/')
-        if not REAL:
-            return self.json(503, {'erro': 'Modo simulado'})
         try:
             b = self.body()
             if p == 'api/simular':
@@ -441,7 +427,7 @@ def main():
         print(f'ERRO de configuração: {e}', file=sys.stderr)
         sys.exit(2)
     port = int(os.environ.get('PORT', 3000))
-    print(f'http://localhost:{port}  (modo {"SANDBOX real" if REAL else "simulado"})', flush=True)
+    print(f'http://localhost:{port}  (SANDBOX da Celcoin)', flush=True)
     ThreadingHTTPServer(('127.0.0.1', port), H).serve_forever()
 
 

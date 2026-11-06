@@ -3,7 +3,7 @@ from unittest import mock
 
 import credit_client as C
 import server
-from tests.test_modo import CONFIG_FICTICIA
+from tests.helpers import CONFIG_FICTICIA
 
 
 class Configuracao(unittest.TestCase):

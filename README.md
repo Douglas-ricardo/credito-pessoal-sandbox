@@ -16,19 +16,12 @@ App local de teste que serve as 12 telas do módulo **Crédito Pessoal** do proj
 
 ## Como rodar
 
-### Modo simulado (sem credenciais)
-
-```
-python app/server.py
-```
-
-Abra `http://localhost:3000`. Sem `.env.local` e sem `CREDIT_MODE`, o app abre em modo simulado: as telas usam os dados do protótipo e nenhuma chamada externa é feita. Uma faixa preta no rodapé informa o modo.
-
-### Modo real (sandbox da Celcoin)
+O app **sempre** fala com o sandbox da Celcoin: simulação, cadastro, solicitação, assinatura, status e retentativa são chamadas reais à API de teste. Não existe modo simulado nem de protótipo.
 
 1. Copie `.env.example` para `.env.local` e preencha todas as variáveis (`CREDIT_CLIENT_ID`, `CREDIT_CLIENT_SECRET`, `CREDIT_API_URL`, `CREDIT_AUTH_URL`, `CREDIT_PRODUCT_ID`). Nunca commite o `.env.local`.
-2. Rode `python app/server.py` (ou `CREDIT_MODE=real python app/server.py`).
-3. Se algo estiver ausente ou inválido, o servidor **não inicia** e diz o que falta; ele nunca cai sozinho em modo simulado. Para rodar sem a API, use `CREDIT_MODE=simulado`.
+2. Rode `python app/server.py` e abra `http://localhost:3000`. Uma faixa preta no rodapé lembra que é o sandbox.
+3. Se algo estiver ausente ou inválido, o servidor **não inicia** e diz o que falta. A variável antiga `CREDIT_MODE` foi removida e é ignorada (com um aviso).
+4. O funding e a taxa de juros (2,99% ao mês, a do desenho) são constantes do sandbox em `app/server.py`, não variáveis.
 
 Para zerar a jornada no navegador: `http://localhost:3000/reset`.
 
@@ -38,14 +31,14 @@ Para zerar a jornada no navegador: `http://localhost:3000/reset`.
 python -m unittest
 ```
 
-Os testes não leem o `.env.local` nem chamam a Celcoin (usam arquivos temporários e chamadas simuladas).
+Os testes não leem o `.env.local` nem chamam a Celcoin (usam configuração fictícia, arquivos temporários e `mock`).
 
 ## Estrutura
 
 | Caminho | O que é |
 |---|---|
 | `concepts/` | HTML original das 12 telas exportado do Studio. **Não editar**: é o desenho de referência. |
-| `app/server.py` | Servidor HTTP, modo (`CREDIT_MODE`), rotas `/api/*` e patches aplicados ao HTML em tempo de resposta. |
+| `app/server.py` | Servidor HTTP, configuração, rotas `/api/*` e patches aplicados ao HTML em tempo de resposta. |
 | `app/bridge.js` | Código injetado nas telas: navegação, estado, chamadas à API, travas de duplo clique. |
 | `app/credit_client.py` | Cliente OAuth e HTTP da API de Crédito, validação de configuração e trava de sandbox. |
 | `tests/` | Testes `unittest`. |
