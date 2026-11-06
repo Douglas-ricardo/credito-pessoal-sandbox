@@ -26,7 +26,7 @@ Abra `http://localhost:3000`. Sem `.env.local` e sem `CREDIT_MODE`, o app abre e
 
 ### Modo real (sandbox da Celcoin)
 
-1. Copie `.env.example` para `.env.local` e preencha todas as variáveis (`CREDIT_CLIENT_ID`, `CREDIT_CLIENT_SECRET`, `CREDIT_API_URL`, `CREDIT_AUTH_URL`, `CREDIT_PRODUCT_ID`, `CREDIT_FUNDING_ID`, `CREDIT_INTEREST_MONTHLY`). Nunca commite o `.env.local`.
+1. Copie `.env.example` para `.env.local` e preencha todas as variáveis (`CREDIT_CLIENT_ID`, `CREDIT_CLIENT_SECRET`, `CREDIT_API_URL`, `CREDIT_AUTH_URL`, `CREDIT_PRODUCT_ID`). Nunca commite o `.env.local`.
 2. Rode `python app/server.py` (ou `CREDIT_MODE=real python app/server.py`).
 3. Se algo estiver ausente ou inválido, o servidor **não inicia** e diz o que falta; ele nunca cai sozinho em modo simulado. Para rodar sem a API, use `CREDIT_MODE=simulado`.
 
