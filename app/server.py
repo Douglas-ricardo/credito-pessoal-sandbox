@@ -76,33 +76,96 @@ def banner():
             'text-align:center;padding:3px;pointer-events:none">' + t + '</div>')
 
 
-def transform(html):
-    bridge = open(os.path.join(HERE, 'bridge.js'), encoding='utf-8').read()
-    # a renomeação de sim() vem antes de inserir a ponte, que define o seu próprio sim()
-    reps = [('function sim() {', 'function simLocal() {'),
-            ('var store = { cfg: {}, s: {} };', STORE), ('function persist() {}', PERSIST), ('function go() {}', bridge),
-            ('assinatura: "email"', 'assinatura: "mandato"'),
-            # tela "Desembolso falhou": mostra o motivo real da Celcoin quando houver (o design só cobre "chave Pix não encontrada")
-            ('alertBox("Chave Pix não encontrada", "Confira a chave cadastrada e tente de novo. Não há nova tentativa automática."',
-             'alertBox(S.statusMsg ? "Falha na liberação do crédito" : "Chave Pix não encontrada", '
-             'S.statusMsg ? S.statusMsg + " (retorno da Celcoin)" : "Confira a chave cadastrada e tente de novo. Não há nova tentativa automática."'),
-            ('function after() { return 0; }', 'function after(ms, fn) { return setTimeout(fn, ms); }'),   # telas 05 e 07 desligam os timers
-            # "Tentar de novo": retentativa real de desembolso (a Celcoin não retenta sozinha)
-            ('handlers.tentar = function () { S.cenarioOk = true;',
-             'handlers.tentar = function () { if (BR.ativo() && S.appId) { BR.retentar().then(function () { S.cenarioOk = true; S.status = "desembolso"; go("acompanhamento"); }, '
-             'function (e) { var a = $("#aviso"); if (a) a.innerHTML = alertBox("Não foi possível tentar de novo", String(e.message || e), { destructive: true }); }); return; } S.cenarioOk = true;'),
-            # "Minhas solicitações": lista real (BR.before carrega S.lista); sem integração, mantém os dados do protótipo
-            ('var itens = (atual', 'var itens = S.lista ? S.lista : (atual'),
-            ('handlers.next = function () {};', 'handlers.next = function () { go(nextAfterSim()); };'),
-            ('handlers.back = function () {};', 'handlers.back = function () { go("index"); };'),
-            ('function reset() { store.s = {}; S = store.s; }', 'function reset() { store.s = {}; S = store.s; persist(); }')]
-    for old, new in reps:
-        if old not in html and not old.startswith(('handlers.', 'function after', 'alertBox', 'var itens')):   # patches que só se aplicam a algumas telas
-            print('padrão não encontrado:', old, file=sys.stderr)
-        html = html.replace(old, new, 1)
-    html = html.replace('PAGES[PAGE]();\n})();', 'BR.before(PAGE).then(function () { PAGES[PAGE](); });\n})();', 1)
-    html = re.sub(r'after\(3800, function \(\) \{\s*passo\+\+;.*?\n    \}\);', lambda m: WATCH, html, count=1, flags=re.S)
-    return html.replace('</body>', banner() + '<script>addEventListener("pagehide",function(){try{persist()}catch(e){}})</script></body>', 1)
+class PatchError(Exception):
+    """O HTML do Studio mudou e um patch obrigatório não encontrou o trecho que precisa alterar."""
+
+
+def _literal(antigo, novo):
+    def aplicar(html):
+        if antigo not in html:
+            return html, False
+        return html.replace(antigo, novo, 1), True
+    return aplicar
+
+
+def _regex(padrao, novo, flags=0):
+    rx = re.compile(padrao, flags)
+
+    def aplicar(html):
+        if not rx.search(html):
+            return html, False
+        return rx.sub(lambda m: novo, html, count=1), True
+    return aplicar
+
+
+# Patches comuns: existem (e são exigidos) nas 12 telas.
+PATCHES_COMUNS = ('sim', 'store', 'persist', 'go', 'assinatura', 'reset', 'boot', 'rodape')
+# Patches obrigatórios só em algumas telas (o trecho existe apenas nelas, conforme o HTML atual do Studio).
+PATCHES_OBRIGATORIOS_POR_TELA = {
+    'valor': ('next', 'back'),                 # handlers vazios do protótipo
+    'preparando': ('after',),                  # timers desligados
+    'acompanhamento': ('after', 'watch'),      # timers desligados + troca da simulação pelo status real
+    'falhou': ('alerta_falha', 'tentar'),      # texto fixo de "chave Pix" + retentativa real
+    'solicitacoes': ('itens',),                # lista fixa → lista real
+}
+# Correções de "stubs" do Studio: aplicadas em qualquer tela onde aparecerem, mas só exigidas nas telas acima.
+PATCHES_OPCIONAIS = ('after', 'next', 'back')
+
+
+def patches_da_tela(tela):
+    """Retorna (obrigatorios, opcionais) como conjuntos de nomes de patch para a tela."""
+    obrigatorios = set(PATCHES_COMUNS) | set(PATCHES_OBRIGATORIOS_POR_TELA.get(tela, ()))
+    return obrigatorios, set(PATCHES_OPCIONAIS) - obrigatorios
+
+
+def _definicoes(bridge):
+    """Todos os patches, na ordem de aplicação. A renomeação de sim() vem antes de inserir a ponte, que tem o seu próprio sim()."""
+    return [
+        ('sim', _literal('function sim() {', 'function simLocal() {')),
+        ('store', _literal('var store = { cfg: {}, s: {} };', STORE)),
+        ('persist', _literal('function persist() {}', PERSIST)),
+        ('go', _literal('function go() {}', bridge)),
+        ('assinatura', _literal('assinatura: "email"', 'assinatura: "mandato"')),
+        # tela "Desembolso falhou": mostra o motivo real da Celcoin quando houver (o design só cobre "chave Pix não encontrada")
+        ('alerta_falha', _literal(
+            'alertBox("Chave Pix não encontrada", "Confira a chave cadastrada e tente de novo. Não há nova tentativa automática."',
+            'alertBox(S.statusMsg ? "Falha na liberação do crédito" : "Chave Pix não encontrada", '
+            'S.statusMsg ? S.statusMsg + " (retorno da Celcoin)" : "Confira a chave cadastrada e tente de novo. Não há nova tentativa automática."')),
+        ('after', _literal('function after() { return 0; }', 'function after(ms, fn) { return setTimeout(fn, ms); }')),
+        # "Tentar de novo": retentativa real de desembolso (a Celcoin não retenta sozinha)
+        ('tentar', _literal(
+            'handlers.tentar = function () { S.cenarioOk = true;',
+            'handlers.tentar = function () { if (BR.ativo() && S.appId) { BR.retentar().then(function () { S.cenarioOk = true; S.status = "desembolso"; go("acompanhamento"); }, '
+            'function (e) { var a = $("#aviso"); if (a) a.innerHTML = alertBox("Não foi possível tentar de novo", String(e.message || e), { destructive: true }); }); return; } S.cenarioOk = true;')),
+        # "Minhas solicitações": lista real (BR.before carrega S.lista); sem integração, mantém os dados do protótipo
+        ('itens', _literal('var itens = (atual', 'var itens = S.lista ? S.lista : (atual')),
+        ('next', _literal('handlers.next = function () {};', 'handlers.next = function () { go(nextAfterSim()); };')),
+        ('back', _literal('handlers.back = function () {};', 'handlers.back = function () { go("index"); };')),
+        ('reset', _literal('function reset() { store.s = {}; S = store.s; }', 'function reset() { store.s = {}; S = store.s; persist(); }')),
+        ('boot', _literal('PAGES[PAGE]();\n})();', 'BR.before(PAGE).then(function () { PAGES[PAGE](); });\n})();')),
+        ('watch', _regex(r'after\(3800, function \(\) \{\s*passo\+\+;.*?\n    \}\);', WATCH, re.S)),
+        ('rodape', _literal('</body>', banner() + '<script>addEventListener("pagehide",function(){try{persist()}catch(e){}})</script></body>')),
+    ]
+
+
+def transform(html, tela):
+    """Aplica os patches da `tela` (chave de ROUTES). Levanta PatchError se um patch obrigatório não achar o seu trecho."""
+    if tela not in ROUTES:
+        raise PatchError(f'Tela desconhecida: {tela}')
+    with open(os.path.join(HERE, 'bridge.js'), encoding='utf-8') as f:
+        bridge = f.read()
+    obrigatorios, opcionais = patches_da_tela(tela)
+    ausentes = []
+    for nome, aplicar in _definicoes(bridge):
+        if nome not in obrigatorios and nome not in opcionais:
+            continue
+        html, achou = aplicar(html)
+        if not achou and nome in obrigatorios:
+            ausentes.append(nome)
+    if ausentes:
+        raise PatchError(f'Tela "{tela}": padrão obrigatório não encontrado para o(s) patch(es): {", ".join(ausentes)}. '
+                         'O HTML do Studio mudou? Revise PATCHES_* em server.py.')
+    return html
 
 
 def next_business_day(d):
@@ -319,7 +382,12 @@ class H(BaseHTTPRequestHandler):
         if not f:
             return self.send(404, 'Tela não encontrada'.encode())
         with open(os.path.join(DIR, f + '.html'), encoding='utf-8') as fh:
-            self.send(200, transform(fh.read()).encode('utf-8'))
+            try:
+                html = transform(fh.read(), p)
+            except PatchError as e:
+                print(f'ERRO: {e}', file=sys.stderr, flush=True)
+                return self.send(500, f'Erro nos patches: {e}'.encode())
+        self.send(200, html.encode('utf-8'))
 
     def do_POST(self):
         if not self.host_permitido():
