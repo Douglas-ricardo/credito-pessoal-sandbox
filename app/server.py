@@ -8,7 +8,7 @@ Modo (variável CREDIT_MODE, do ambiente ou do .env.local):
 """
 import datetime, json, os, re, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import unquote, urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -24,6 +24,7 @@ ROUTES = {'index': '00-ofertas', 'valor': '01-valor', 'vencimento': '02-vencimen
 MAGIC_PIX = '4ca519ef-0ccc-4c41-b58b-c88f1f47d8ab'
 MODO = 'simulado'
 REAL = False
+HOST_OK = re.compile(r'(localhost|127\.0\.0\.1)(:\d{1,5})?', re.IGNORECASE)
 
 
 def resolver_modo(environ=None, env_file=None):
@@ -279,7 +280,16 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get('Content-Length') or 0)
         return json.loads(self.rfile.read(n) or b'{}')
 
+    def host_permitido(self):
+        """Só aceita Host localhost ou 127.0.0.1 (com porta opcional). Barra DNS rebinding e acesso por outro nome."""
+        if HOST_OK.fullmatch(self.headers.get('Host', '')):
+            return True
+        self.send(403, 'Host não permitido: este app só responde em localhost ou 127.0.0.1.'.encode())
+        return False
+
     def do_GET(self):
+        if not self.host_permitido():
+            return
         p = unquote(urlsplit(self.path).path).strip('/') or 'index'
         if p == 'api/modo':
             return self.json(200, {'real': REAL})
@@ -291,15 +301,8 @@ class H(BaseHTTPRequestHandler):
                 return self.json(200, {'status': g['status'], 'descricao': g.get('status_description')})
             except Exception as e:
                 return self.json(502, {'erro': str(e)})
-        if p == 'api/solicitacoes' and REAL:
-            try:
-                cpf = digits(parse_qs(urlsplit(self.path).query).get('cpf', [''])[0])
-                st, g = C.call('GET', f'/banking/originator/applications?taxpayer_id={cpf}')
-                if st != 200:
-                    return self.json(502, {'erro': f'HTTP {st}'})
-                return self.json(200, [lista_item(a) for a in g.get('content', [])][:10])
-            except Exception as e:
-                return self.json(502, {'erro': str(e)})
+        if p == 'api/solicitacoes':                           # o CPF não pode ir na URL: só POST com o CPF no corpo
+            return self.json(405, {'erro': 'Use POST com o CPF no corpo da requisição.'})
         if p.startswith('raw/') and p[4:] in ROUTES:          # HTML original do Studio, sem patches (usado na comparação de fidelidade)
             with open(os.path.join(DIR, ROUTES[p[4:]] + '.html'), encoding='utf-8') as fh:
                 return self.send(200, fh.read().encode('utf-8'))
@@ -319,6 +322,8 @@ class H(BaseHTTPRequestHandler):
             self.send(200, transform(fh.read()).encode('utf-8'))
 
     def do_POST(self):
+        if not self.host_permitido():
+            return
         p = urlsplit(self.path).path.strip('/')
         if not REAL:
             return self.json(503, {'erro': 'Modo simulado'})
@@ -328,6 +333,14 @@ class H(BaseHTTPRequestHandler):
                 return self.json(200, resumo_sim(preview(b['valor'], b['n'], b['venc'])))
             if p == 'api/solicitar':
                 return self.json(200, solicitar_unico(b))
+            if p == 'api/solicitacoes':
+                cpf = digits(b.get('cpf'))
+                if len(cpf) != 11:
+                    return self.json(400, {'erro': 'CPF inválido.'})
+                st, g = C.call('GET', f'/banking/originator/applications?taxpayer_id={cpf}')
+                if st != 200:
+                    return self.json(502, {'erro': f'HTTP {st}'})
+                return self.json(200, [lista_item(a) for a in g.get('content', [])][:10])
             if p == 'api/retentar':
                 st, r = C.call('POST', f"/banking/originator/applications/{b['appId']}/disbursement-attempts", {})
                 if st not in (200, 201, 202):

@@ -14,7 +14,7 @@ var BR = (function () {
         if (!ok) return;
         aplicarReal();
         if (page === "solicitacoes") {
-          return api("GET", "/api/solicitacoes?cpf=" + encodeURIComponent((S.dados && S.dados.cpf) || "")).then(function (l) { S.lista = l; }, function () { S.lista = null; });
+          return api("POST", "/api/solicitacoes", { cpf: (S.dados && S.dados.cpf) || "" }).then(function (l) { S.lista = l; }, function () { S.lista = null; });
         }
         if (page !== "resumo") return;
         var l = simLocal(), key = l.valor.toFixed(2) + "|" + S.n + "|" + S.venc;
