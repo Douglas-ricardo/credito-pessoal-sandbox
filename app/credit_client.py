@@ -8,6 +8,7 @@ import json
 import os
 import time
 import urllib.error
+import uuid
 import urllib.parse
 import urllib.request
 
@@ -63,7 +64,27 @@ def validar_url_sandbox(nome, url):
     return url.strip().rstrip('/')
 
 
-CAMPOS_OBRIGATORIOS = ('CREDIT_CLIENT_ID', 'CREDIT_CLIENT_SECRET', 'CREDIT_API_URL', 'CREDIT_AUTH_URL', 'CREDIT_PRODUCT_ID')
+CAMPOS_OBRIGATORIOS = ('CREDIT_CLIENT_ID', 'CREDIT_CLIENT_SECRET', 'CREDIT_API_URL', 'CREDIT_AUTH_URL', 'CREDIT_PRODUCT_ID',
+                       'CREDIT_FUNDING_ID', 'CREDIT_INTEREST_MONTHLY')
+
+
+def _uuid(nome, valor):
+    try:
+        uuid.UUID(valor.strip())
+    except ValueError:
+        raise ConfigError(f'{nome} não é um UUID válido.') from None
+
+
+def taxa_mensal(env=None):
+    """Taxa de juros mensal (fração, ex.: 0.0299 = 2,99% ao mês) lida de CREDIT_INTEREST_MONTHLY."""
+    bruto = ((env if env is not None else ENV).get('CREDIT_INTEREST_MONTHLY') or '').strip().replace(',', '.')
+    try:
+        taxa = float(bruto)
+    except ValueError:
+        raise ConfigError('CREDIT_INTEREST_MONTHLY não é um número (ex.: 0.0299 para 2,99% ao mês).') from None
+    if not 0 < taxa < 1:
+        raise ConfigError('CREDIT_INTEREST_MONTHLY deve ser uma fração mensal entre 0 e 1 (ex.: 0.0299 para 2,99% ao mês).')
+    return taxa
 
 
 def configurar(env):
@@ -74,6 +95,9 @@ def configurar(env):
     global API, AUTH
     api = validar_url_sandbox('CREDIT_API_URL', env['CREDIT_API_URL'])
     auth = validar_url_sandbox('CREDIT_AUTH_URL', env['CREDIT_AUTH_URL'])
+    _uuid('CREDIT_PRODUCT_ID', env['CREDIT_PRODUCT_ID'])
+    _uuid('CREDIT_FUNDING_ID', env['CREDIT_FUNDING_ID'])
+    taxa_mensal(env)
     ENV.clear()
     ENV.update(env)
     API, AUTH = api, auth

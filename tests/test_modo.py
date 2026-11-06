@@ -12,6 +12,7 @@ CONFIG_FICTICIA = {
     'CREDIT_CLIENT_ID': 'id-de-teste', 'CREDIT_CLIENT_SECRET': 'segredo-de-teste',
     'CREDIT_API_URL': 'https://sandbox.platform.exemplo.test', 'CREDIT_AUTH_URL': 'https://sandbox.auth.exemplo.test/oauth2/token',
     'CREDIT_PRODUCT_ID': '00000000-0000-0000-0000-000000000001',
+    'CREDIT_FUNDING_ID': '00000000-0000-0000-0000-000000000002', 'CREDIT_INTEREST_MONTHLY': '0.0299',
 }
 
 

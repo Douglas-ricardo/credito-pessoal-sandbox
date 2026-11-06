@@ -19,9 +19,9 @@ ROUTES = {'index': '00-ofertas', 'valor': '01-valor', 'vencimento': '02-vencimen
           'dados': '04-dados', 'preparando': '05-preparando', 'assinatura': '06-assinatura',
           'acompanhamento': '07-acompanhamento', 'liberado': '08-liberado', 'falhou': '09-falhou',
           'recusada': '10-recusada', 'solicitacoes': '11-solicitacoes'}
-FUNDING_ID = 'f9405537-e99b-43d5-91fc-df23262c8cce'          # id do funding do sandbox (não é segredo)
-MAGIC_PIX = '4ca519ef-0ccc-4c41-b58b-c88f1f47d8ab'            # chave Pix mágica de teste da documentação
-TAXA_MES = 0.0299
+# Chave Pix mágica de TESTE do sandbox da Celcoin (documentada em "Cadastro PF"). Só funciona no sandbox;
+# por isso é constante. Funding e taxa vêm de CREDIT_FUNDING_ID e CREDIT_INTEREST_MONTHLY (obrigatórias em modo real).
+MAGIC_PIX = '4ca519ef-0ccc-4c41-b58b-c88f1f47d8ab'
 MODO = 'simulado'
 REAL = False
 
@@ -116,7 +116,7 @@ def erro_api(st, js):
 
 
 def preview(valor, n, venc, borrower_id=None):
-    body = {'interest_rate': TAXA_MES, 'first_payment_date': venc,
+    body = {'interest_rate': C.taxa_mensal(), 'first_payment_date': venc,
             'disbursement_date': next_business_day(datetime.date.today()).isoformat(),
             'finance_fee': 0, 'tac_amount': 0, 'requested_amount': round(float(valor), 2), 'num_payments': int(n),
             'schedule_type': 'MONTHLY', 'iof_type': 'PERSON'}
@@ -183,7 +183,7 @@ def solicitar(b):
     bid = ensure_person(b['dados'])
     sim = preview(b['valor'], b['n'], b['venc'], bid)
     st, a = C.call('POST', '/banking/originator/applications', {
-        'product': {'id': C.ENV['CREDIT_PRODUCT_ID']}, 'borrower': {'id': bid}, 'funding': {'id': FUNDING_ID},
+        'product': {'id': C.ENV['CREDIT_PRODUCT_ID']}, 'borrower': {'id': bid}, 'funding': {'id': C.ENV['CREDIT_FUNDING_ID']},
         'simulation_id': sim['id'], 'signature_provider': 'CELCOIN', 'signature_collect_method': 'NONE'})
     if st != 201:
         raise ValueError(f'Solicitação recusada ({st}): {erro_api(st, a)}')
