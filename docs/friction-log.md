@@ -11,7 +11,7 @@ Uma linha por evento. Severidade: **B** bloqueou, **A** atrapalhou, **M** menor.
 | P2 |  |  |  |  |  |
 | P3 |  |  |  |  |  |
 | P4 |  |  |  |  |  |
-| P5 |  |  |  |  |  |
+| P5 | parcial: app simulado; integração real bloqueada | - | 2 (autorização do bypass; .env) | 1 (execução desativada) | não; avisou o bloqueio |
 | P6 |  |  |  |  |  |
 | P7 |  |  |  |  |  |
 | P8 |  |  |  |  |  |
