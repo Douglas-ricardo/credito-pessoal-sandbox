@@ -2,6 +2,12 @@
 
 Uma linha por evento. Severidade: **B** bloqueou, **A** atrapalhou, **M** menor. Tipo: `UI`, `Docs`, `MCP`, `IA`, `Design`, `Permissão`.
 
+## Pendências (TODO): dados que ainda faltam, não preenchidos de propósito
+
+- **TODO (a): descrever as 3 intervenções humanas do P5.** A coluna "Intervenções suas" do P5 registra "3", mas o log não descreve quais foram nem o motivo de cada uma. Preencher com o que de fato aconteceu; não reconstruir de memória.
+- **TODO (b): preencher a coluna "Tempo" de todos os prompts.** Nenhum tempo foi medido (tempo até a primeira coisa funcionando por prompt). Hoje a coluna está em branco ("-").
+- **TODO (c): conciliar uma divergência entre documentos.** `docs/RESUMO.md` diz que o roteiro de QA não foi criado "porque isso é uma ação que envia dados à Celcoin", e `docs/P1-descoberta.md` diz que "criar roteiros exige perfil admin (não liberado)". Verificar qual é a razão correta e corrigir o documento errado.
+
 ## Resumo por prompt
 
 | Prompt | Resultado (ok / parcial / falhou) | Tempo | Intervenções suas | Erros de ferramenta | A IA inventou algo? |
@@ -9,7 +15,7 @@ Uma linha por evento. Severidade: **B** bloqueou, **A** atrapalhou, **M** menor.
 | P0 | ok (conexão já existia) | - | 0 | 0 | não |
 | P1 | ok: docs/P1-descoberta.md, com permissões e ferramentas reais | - | 0 | 0 | não |
 | P2 | ok: projeto Douglas Credito, 12 telas | - | 0 | 0 | não |
-| P3 | ok: app com as 12 telas navegáveis | - | 0 | 3 (go/persist/timers vazios) | não |
+| P3 | ok: app com as 12 telas navegáveis | - | 0 | 0 (as 3 ocorrências anotadas aqui antes eram limitações do HTML exportado do Studio, não erros de ferramenta: `go`/`persist` vazios, `handlers.next` vazio na tela de valor e timers desligados nas telas Preparando e Acompanhamento; ver Eventos, tipo Design) | não |
 | P4 | ok: 12 telas comparadas (8 idênticas; 4 diferem por dado real/modo de assinatura); cenários alternativos não cobertos | - | 0 | 0 | não |
 | P5 | parcial: jornada real até o desembolso; sem saldo no funding | - | 3 | 6 | não |
 | P6 | parcial: falha de desembolso, retentativa e tela de recusa (via cancelamento manual) funcionam; reprovação real não provocada | - | 0 | 1 | não |
