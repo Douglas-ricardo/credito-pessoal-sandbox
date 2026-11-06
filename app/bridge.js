@@ -13,6 +13,9 @@ var BR = (function () {
       return BR.modo().then(function (ok) {
         if (!ok) return;
         aplicarReal();
+        if (page === "solicitacoes") {
+          return api("GET", "/api/solicitacoes?cpf=" + encodeURIComponent((S.dados && S.dados.cpf) || "")).then(function (l) { S.lista = l; }, function () { S.lista = null; });
+        }
         if (page !== "resumo") return;
         var l = simLocal(), key = l.valor.toFixed(2) + "|" + S.n + "|" + S.venc;
         if (S.real && S.real.key === key) return;
@@ -26,6 +29,9 @@ var BR = (function () {
       return api("POST", "/api/solicitar", { dados: S.dados, end: S.end, conta: S.conta, valor: l.valor, n: S.n, venc: S.venc }).then(function (r) {
         S.appId = r.appId; S.borrowerId = r.borrowerId; S.real = Object.assign({ key: l.valor.toFixed(2) + "|" + S.n + "|" + S.venc }, r.simulacao); persist();
       });
+    },
+    retentar: function () {
+      return api("POST", "/api/retentar", { appId: S.appId }).then(function () { S.ignoraFalhaAte = Date.now() + 25000; persist(); });
     },
     assinar: function () { return api("POST", "/api/assinar", { appId: S.appId, borrowerId: S.borrowerId }).then(function () { S.assinadoReal = true; persist(); }); },
     watch: function (fn) {

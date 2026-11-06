@@ -2,7 +2,7 @@
 do SANDBOX da Celcoin quando houver .env.local; sem ele, roda em modo simulado."""
 import datetime, json, os, re, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIR = os.path.join(HERE, '..', 'concepts')
@@ -23,7 +23,7 @@ STORE = ('var store = (function(){try{var j=sessionStorage.getItem("credito");if
 PERSIST = 'function persist(){try{sessionStorage.setItem("credito",JSON.stringify(store))}catch(e){}}'
 WATCH = ('BR.watch(function(st){ if(st==="ISSUED"){go("liberado");return true} '
          'if(st==="CANCELED"){S.res="recusada";go("recusada");return true} '
-         'if(st==="DISBURSEMENT_ATTEMPT_FAILED"){go("falhou");return true} '
+         'if(st==="DISBURSEMENT_ATTEMPT_FAILED"&&!(S.ignoraFalhaAte>Date.now())){go("falhou");return true} '
          'var ns=(st==="PENDING_DISBURSEMENT"||st==="PENDING_CASHOUT"||st==="SCHEDULED_DISBURSEMENT")?"desembolso":"instituicao"; '
          'if(ns!==seq[passo]&&seq.indexOf(ns)>=0){passo=seq.indexOf(ns);S.status=ns;estado();return true} return false; });')
 
@@ -46,11 +46,17 @@ def transform(html):
              'alertBox(S.statusMsg ? "Falha na liberação do crédito" : "Chave Pix não encontrada", '
              'S.statusMsg ? S.statusMsg + " (retorno da Celcoin)" : "Confira a chave cadastrada e tente de novo. Não há nova tentativa automática."'),
             ('function after() { return 0; }', 'function after(ms, fn) { return setTimeout(fn, ms); }'),   # telas 05 e 07 desligam os timers
+            # "Tentar de novo": retentativa real de desembolso (a Celcoin não retenta sozinha)
+            ('handlers.tentar = function () { S.cenarioOk = true;',
+             'handlers.tentar = function () { if (BR.ativo() && S.appId) { BR.retentar().then(function () { S.cenarioOk = true; S.status = "desembolso"; go("acompanhamento"); }, '
+             'function (e) { var a = $("#aviso"); if (a) a.innerHTML = alertBox("Não foi possível tentar de novo", String(e.message || e), { destructive: true }); }); return; } S.cenarioOk = true;'),
+            # "Minhas solicitações": lista real (BR.before carrega S.lista); sem integração, mantém os dados do protótipo
+            ('var itens = (atual', 'var itens = S.lista ? S.lista : (atual'),
             ('handlers.next = function () {};', 'handlers.next = function () { go(nextAfterSim()); };'),
             ('handlers.back = function () {};', 'handlers.back = function () { go("index"); };'),
             ('function reset() { store.s = {}; S = store.s; }', 'function reset() { store.s = {}; S = store.s; persist(); }')]
     for old, new in reps:
-        if old not in html and not old.startswith(('handlers.', 'function after', 'alertBox')):   # patches que só se aplicam a algumas telas
+        if old not in html and not old.startswith(('handlers.', 'function after', 'alertBox', 'var itens')):   # patches que só se aplicam a algumas telas
             print('padrão não encontrado:', old, file=sys.stderr)
         html = html.replace(old, new, 1)
     html = html.replace('PAGES[PAGE]();\n})();', 'BR.before(PAGE).then(function () { PAGES[PAGE](); });\n})();', 1)
@@ -86,6 +92,17 @@ def resumo_sim(js):
     return {'id': js['id'], 'valor': js['requested_amount'], 'n': js['num_periods'], 'parcela': js['payment_amount'],
             'total': js['total_amount_owed'], 'iof': js['iof_amount'],
             'cet': round(js['annual_effective_interest_rate'] * 100, 2), 'primeiroVenc': js['first_payment_date']}
+
+
+STATUS_TELA = {'ISSUED': 'Liberado', 'CANCELED': 'Cancelada', 'DISBURSEMENT_ATTEMPT_FAILED': 'Desembolso falhou',
+               'SIGNATURE_ERROR': 'Erro na assinatura', 'PENDING_SIGNATURE': 'Aguardando assinatura'}
+
+
+def lista_item(a):
+    d = a.get('loan_details') or {}
+    return {'nome': 'Crédito Pessoal', 'valor': a['requested_amount'], 'n': a['num_payments'], 'parcela': d.get('payment_amount', 0),
+            'status': STATUS_TELA.get(a['status'], 'Em andamento'), 'venc': a.get('first_payment_date'),
+            'atual': a['status'] == 'ISSUED'}
 
 
 def digits(s):
@@ -160,6 +177,15 @@ class H(BaseHTTPRequestHandler):
                 return self.json(200, {'status': g['status'], 'descricao': g.get('status_description')})
             except Exception as e:
                 return self.json(502, {'erro': str(e)})
+        if p == 'api/solicitacoes' and REAL:
+            try:
+                cpf = digits(parse_qs(urlsplit(self.path).query).get('cpf', [''])[0])
+                st, g = C.call('GET', f'/banking/originator/applications?taxpayer_id={cpf}')
+                if st != 200:
+                    return self.json(502, {'erro': f'HTTP {st}'})
+                return self.json(200, [lista_item(a) for a in g.get('content', [])][:10])
+            except Exception as e:
+                return self.json(502, {'erro': str(e)})
         if p == 'reset':
             return self.send(200, b'<script>sessionStorage.clear();location.href="/"</script>')
         if p.startswith('studio-fonts/'):
@@ -183,6 +209,11 @@ class H(BaseHTTPRequestHandler):
                 return self.json(200, resumo_sim(preview(b['valor'], b['n'], b['venc'])))
             if p == 'api/solicitar':
                 return self.json(200, solicitar(b))
+            if p == 'api/retentar':
+                st, r = C.call('POST', f"/banking/originator/applications/{b['appId']}/disbursement-attempts", {})
+                if st not in (200, 201, 202):
+                    return self.json(502, {'erro': f'Retentativa recusada ({st}): {erro_api(st, r)}'})
+                return self.json(200, {'status': r.get('status')})
             if p == 'api/assinar':
                 st, s = C.call('POST', f"/banking/originator/applications/{b['appId']}/signatures", {
                     'ip_address': self.client_address[0],

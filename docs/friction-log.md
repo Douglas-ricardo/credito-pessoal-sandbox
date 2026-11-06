@@ -6,17 +6,17 @@ Uma linha por evento. Severidade: **B** bloqueou, **A** atrapalhou, **M** menor.
 
 | Prompt | Resultado (ok / parcial / falhou) | Tempo | Intervenções suas | Erros de ferramenta | A IA inventou algo? |
 |--------|-----------------------------------|-------|-------------------|---------------------|---------------------|
-| P0 |  |  |  |  |  |
-| P1 |  |  |  |  |  |
-| P2 |  |  |  |  |  |
-| P3 |  |  |  |  |  |
-| P4 |  |  |  |  |  |
-| P5 | parcial: jornada real ponta a ponta no sandbox até o desembolso; desembolso falha por falta de saldo no funding | - | 3 (autorizar a chamada direta; preencher .env.local; corrigir AUTH_URL) | 6 (ver eventos) | não |
-| P6 |  |  |  |  |  |
-| P7 |  |  |  |  |  |
-| P8 |  |  |  |  |  |
-| P9 |  |  |  |  |  |
-| P10 |  |  |  |  |  |
+| P0 | ok (conexão já existia) | - | 0 | 0 | não |
+| P1 | não executado (partiu direto para o projeto) | - | 0 | 0 | - |
+| P2 | ok: projeto Douglas Credito, 12 telas | - | 0 | 0 | não |
+| P3 | ok: app com as 12 telas navegáveis | - | 0 | 3 (go/persist/timers vazios) | não |
+| P4 | parcial: divergências apontadas (parcela sem IOF, texto da falha) | - | 0 | 0 | não |
+| P5 | parcial: jornada real até o desembolso; sem saldo no funding | - | 3 | 6 | não |
+| P6 | parcial: falha de desembolso e retentativa reais; recusa não provocada | - | 0 | 1 | não |
+| P7 | ok: 3 produtos instalados; só Pessoal testado | - | 0 | 0 | não |
+| P8 | parcial: catálogo de QA não tem Crédito Pessoal | - | 0 | 0 | não |
+| P9 | ok: sem comentários; notificações não liberadas | - | 0 | 0 | não |
+| P10 | ok: docs/RESUMO.md | - | 0 | 0 | não |
 
 ## Eventos
 
@@ -35,15 +35,16 @@ Uma linha por evento. Severidade: **B** bloqueou, **A** atrapalhou, **M** menor.
 
 ## O que funcionou bem
 
--
+- App abre as 12 telas do Studio com o visual original e roda contra o sandbox real.
+- Retentativa e lista de solicitações reais funcionam.
 
 ## Hipóteses (H1 a H6): confirmada / derrubada / inconclusiva
 
 | # | Veredito | Evidência |
 |---|----------|-----------|
-| H1 |  |  |
-| H2 |  |  |
-| H3 |  |  |
-| H4 |  |  |
-| H5 |  |  |
-| H6 |  |  |
+| H1 | Confirmada | Índice do MCP e docs de Crédito cobrem pouco; QA sem Crédito Pessoal; endpoints só nas páginas públicas. |
+| H2 | Derrubada | `mode` veio `live`, não mock. O bloqueio real foi a execução desativada no servidor, sinalizada só na hora de executar. |
+| H3 | Confirmada | HTML do Studio reproduzido com branding preservado (cor, fonte Inter, raio); faltou só ligar navegação e timers. |
+| H4 | Confirmada | Sem o aviso no rodapé, um leigo não distingue protótipo de integração real (a tela é idêntica nos dois modos). |
+| H5 | Confirmada | Sem massa documentada para recusa de Crédito Pessoal; a única falha provocada foi por falta de saldo no funding. |
+| H6 | Inconclusiva | Nenhum comentário para responder; não houve ação com efeito externo além do sandbox autorizado. |
