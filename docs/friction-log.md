@@ -7,12 +7,12 @@ Uma linha por evento. Severidade: **B** bloqueou, **A** atrapalhou, **M** menor.
 | Prompt | Resultado (ok / parcial / falhou) | Tempo | Intervenções suas | Erros de ferramenta | A IA inventou algo? |
 |--------|-----------------------------------|-------|-------------------|---------------------|---------------------|
 | P0 | ok (conexão já existia) | - | 0 | 0 | não |
-| P1 | não executado (partiu direto para o projeto) | - | 0 | 0 | - |
+| P1 | ok: docs/P1-descoberta.md, com permissões e ferramentas reais | - | 0 | 0 | não |
 | P2 | ok: projeto Douglas Credito, 12 telas | - | 0 | 0 | não |
 | P3 | ok: app com as 12 telas navegáveis | - | 0 | 3 (go/persist/timers vazios) | não |
-| P4 | parcial: divergências apontadas (parcela sem IOF, texto da falha) | - | 0 | 0 | não |
+| P4 | ok: 12 telas comparadas (8 idênticas; 4 diferem por dado real/modo de assinatura); cenários alternativos não cobertos | - | 0 | 0 | não |
 | P5 | parcial: jornada real até o desembolso; sem saldo no funding | - | 3 | 6 | não |
-| P6 | parcial: falha de desembolso e retentativa reais; recusa não provocada | - | 0 | 1 | não |
+| P6 | parcial: falha de desembolso, retentativa e tela de recusa (via cancelamento manual) funcionam; reprovação real não provocada | - | 0 | 1 | não |
 | P7 | ok: 3 produtos instalados; só Pessoal testado | - | 0 | 0 | não |
 | P8 | parcial: catálogo de QA não tem Crédito Pessoal | - | 0 | 0 | não |
 | P9 | ok: sem comentários; notificações não liberadas | - | 0 | 0 | não |
@@ -25,6 +25,7 @@ Uma linha por evento. Severidade: **B** bloqueou, **A** atrapalhou, **M** menor.
 | 2026-11-06 | P3 | Design | A | Os HTML do Studio são protótipos isolados: `go()` e `persist()` vazios, `handlers.next` vazio na tela de valor, e `after()` desativado nas telas "Preparando" e "Acompanhamento" (timers off) | Telas exportadas serem navegáveis ou documentarem o que falta ligar | Patches em `app/server.py` |
 | 2026-11-06 | P4 | Design | A | Tela de valor estima parcela sem IOF (8.000 em 12x = R$ 803,22, CET 45,60%); a simulação real devolve R$ 820,68 e CET 48,41% | Mesmo número do início ao fim da jornada | Tela de valor x resumo |
 | 2026-11-06 | P6 | Design | M | Tela "Desembolso falhou" só cobre "Chave Pix não encontrada"; o erro real do sandbox foi "saldo insuficiente" (problema do lado do funding, não do cliente) | Mensagem coerente com a causa real | Retorno da Celcoin na tela |
+| 2026-11-06 | P6 | Docs | A | Não há massa de teste documentada de Crédito para reprovar KYC/crédito (a página de massa de dados é só de Pagamentos). Recusa real é `CANCELED` + `KYC_REJECTED`, mas não há CPF de teste para provocar | Receita oficial de recusa no sandbox | docs `massa-de-dados-para-teste`, `kyc-credito` |
 | 2026-11-06 | P5 | Permissão | B | `execute_cel_credit_sandbox_action` retornou "A execução no sandbox Celcoin está desativada" com cel_credit_sandbox_execute concedido em `permissions` | Permissão concedida deveria funcionar, ou `permissions` deveria indicar o desligamento | Mensagem do proxy |
 | 2026-11-06 | P5 | Docs | A | Chamada direta bloqueada pelo Cloudflare (erro 1010) com o User-Agent padrão do Python; passou com User-Agent próprio | Doc avisar que o UA padrão é bloqueado | HTTP 403 "Error 1010" |
 | 2026-11-06 | P5 | Docs | A | Doc de autenticação v5 exige mTLS e IP fixo; no sandbox bastou client_credentials com Basic em `/oauth2/token`, caminho que não aparece nas páginas lidas | Doc dizer qual é o fluxo do sandbox | Token obtido sem certificado |

@@ -25,11 +25,16 @@ Data: 2026-11-06. Tudo foi feito no **ambiente de teste** da Celcoin. Nenhum din
 
 - **O dinheiro não chega:** a conta de funding do sandbox está sem saldo ("Conta com saldo insuficiente"). Por isso nenhuma solicitação chegou a "Crédito liberado". É preciso pedir à Celcoin para colocar saldo.
 - **O MCP não executa em Crédito:** a ferramenta de execução está desativada no servidor, mesmo com a permissão concedida. Usamos a chamada direta à API do sandbox, com sua autorização.
-- **Proposta recusada:** a tela existe, mas não provocamos esse estado no sandbox. Não achamos massa de teste documentada para recusa de Crédito Pessoal.
+- **Proposta recusada:** a tela aparece quando a solicitação vira `CANCELED` (testado cancelando uma solicitação de teste; o KYC reprovado também cai aqui). Uma **reprovação real não foi provocada**: não há CPF de teste documentado para isso. O texto da tela diz "não foi possível aprovar", o que não vale para cancelamento manual.
 - **Parcela na tela de valor:** é uma estimativa sem IOF (R$ 803,22 para 8.000 em 12x). O resumo mostra o valor real (R$ 820,68).
 - **Texto legal:** a autorização do mandato na tela de assinatura ainda está como `<PREENCHER>` (vem do design).
 - **ZAPSIGN** deu erro de assinatura no sandbox. Usamos o provedor CELCOIN.
 - **Notificações:** a ferramenta `get_notifications` não está liberada, então não foi possível ler notificações. Não há comentários nas telas.
+
+## Documentos desta rodada
+
+- `docs/P1-descoberta.md`: explicação da ferramenta para um leigo.
+- `docs/P4-fidelidade.md`: comparação das 12 telas com o Studio.
 
 ## Outros produtos de crédito (P7)
 

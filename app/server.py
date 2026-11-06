@@ -21,8 +21,8 @@ except Exception as e:                                          # sem .env.local
 STORE = ('var store = (function(){try{var j=sessionStorage.getItem("credito");if(j)return JSON.parse(j)}catch(e){}'
          'return{cfg:{},s:{}}})(); store.cfg=store.cfg||{}; store.s=store.s||{};')
 PERSIST = 'function persist(){try{sessionStorage.setItem("credito",JSON.stringify(store))}catch(e){}}'
-WATCH = ('BR.watch(function(st){ if(st==="ISSUED"){go("liberado");return true} '
-         'if(st==="CANCELED"){S.res="recusada";go("recusada");return true} '
+WATCH = ('BR.watch(function(st,x){ if(st==="ISSUED"){go("liberado");return true} '
+         'if(st==="CANCELED"){S.res=(x&&x.descricao==="KYC_REJECTED")?"kyc":"recusada";go("recusada");return true} '
          'if(st==="DISBURSEMENT_ATTEMPT_FAILED"&&!(S.ignoraFalhaAte>Date.now())){go("falhou");return true} '
          'var ns=(st==="PENDING_DISBURSEMENT"||st==="PENDING_CASHOUT"||st==="SCHEDULED_DISBURSEMENT")?"desembolso":"instituicao"; '
          'if(ns!==seq[passo]&&seq.indexOf(ns)>=0){passo=seq.indexOf(ns);S.status=ns;estado();return true} return false; });')
@@ -145,6 +145,8 @@ def solicitar(b):
         st, g = C.call('GET', f"/banking/originator/applications/{a['id']}")
         if g['status'] != 'AGREEMENT_RENDERING':
             break
+    if g['status'] == 'CANCELED':                                         # KYC embarcado reprovou (ou cancelada) → tela de recusa
+        raise ValueError('KYC_REJECTED' if g.get('status_description') == 'KYC_REJECTED' else 'CANCELED')
     if g['status'] != 'PENDING_SIGNATURE':
         raise ValueError(f"Contrato não ficou pronto para assinatura (status {g['status']})")
     return {'appId': a['id'], 'borrowerId': bid, 'status': g['status'], 'simulacao': resumo_sim(sim)}
@@ -186,6 +188,9 @@ class H(BaseHTTPRequestHandler):
                 return self.json(200, [lista_item(a) for a in g.get('content', [])][:10])
             except Exception as e:
                 return self.json(502, {'erro': str(e)})
+        if p.startswith('raw/') and p[4:] in ROUTES:          # HTML original do Studio, sem patches (usado na comparação de fidelidade)
+            with open(os.path.join(DIR, ROUTES[p[4:]] + '.html'), encoding='utf-8') as fh:
+                return self.send(200, fh.read().encode('utf-8'))
         if p == 'reset':
             return self.send(200, b'<script>sessionStorage.clear();location.href="/"</script>')
         if p.startswith('studio-fonts/'):

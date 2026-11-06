@@ -52,7 +52,7 @@ function go(p) {
   if (PAGE === "preparando" && (p === "assinatura" || p === "recusada") && !S.appId) {
     if (criandoAgora) return; criandoAgora = true;          // só em memória: nunca persistir esta flag
     return BR.solicitar().then(function () { criandoAgora = false; destino("assinatura"); },
-      function (e) { criandoAgora = false; S.res = "recusada"; S.motivoReal = String(e.message || e); destino("recusada"); });
+      function (e) { criandoAgora = false; S.res = /KYC_REJECTED/.test(String(e.message || e)) ? "kyc" : "recusada"; S.motivoReal = String(e.message || e); destino("recusada"); });
   }
   if (PAGE === "assinatura" && p === "acompanhamento" && S.appId && !S.assinadoReal) {
     return BR.assinar().then(function () { destino(p); }, function (e) { S.res = "recusada"; S.motivoReal = String(e.message || e); destino("recusada"); });
