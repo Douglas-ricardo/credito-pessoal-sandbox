@@ -31,9 +31,17 @@ var BR = (function () {
       });
     },
     retentar: function () {
-      return api("POST", "/api/retentar", { appId: S.appId }).then(function () { S.ignoraFalhaAte = Date.now() + 25000; persist(); });
+      if (retentando) return Promise.reject(new Error("Já estamos tentando de novo. Aguarde um instante."));
+      retentando = true; var liberar = bloquearBotoes();            // evita duplo clique
+      return api("POST", "/api/retentar", { appId: S.appId }).then(function () { S.ignoraFalhaAte = Date.now() + 25000; persist(); })
+        .then(function () { retentando = false; liberar(); }, function (e) { retentando = false; liberar(); throw e; });
     },
-    assinar: function () { return api("POST", "/api/assinar", { appId: S.appId, borrowerId: S.borrowerId }).then(function () { S.assinadoReal = true; persist(); }); },
+    assinar: function () {
+      if (assinandoAgora) return Promise.reject(new Error("Assinatura já em andamento."));
+      assinandoAgora = true;
+      return api("POST", "/api/assinar", { appId: S.appId, borrowerId: S.borrowerId }).then(function () { assinandoAgora = false; S.assinadoReal = true; persist(); },
+        function (e) { assinandoAgora = false; throw e; });
+    },
     watch: function (fn) {
       clearTimeout(timer);
       (function tick() {
@@ -45,16 +53,25 @@ var BR = (function () {
     ativo: function () { return real; }
   };
 })();
-var criandoAgora = false;
+// Flags só em memória (nunca persistir): impedem ações duplicadas enquanto uma chamada está em andamento.
+var criandoAgora = false, assinandoAgora = false, retentando = false;
+// Desabilita os botões da tela enquanto uma ação está em andamento. Retorna a função que os reabilita.
+function bloquearBotoes() {
+  var els = Array.prototype.slice.call(document.querySelectorAll("button, [role=button]"));
+  var antes = els.map(function (b) { return b.disabled; });
+  els.forEach(function (b) { b.disabled = true; b.setAttribute("aria-disabled", "true"); });
+  return function () { els.forEach(function (b, i) { b.disabled = antes[i]; if (!antes[i]) b.removeAttribute("aria-disabled"); }); };
+}
 function go(p) {
   var destino = function (q) { persist(); location.href = "/" + (q === "index" ? "" : q); };
   if (!BR.ativo()) return destino(p);
   if (PAGE === "preparando" && (p === "assinatura" || p === "recusada") && !S.appId) {
-    if (criandoAgora) return; criandoAgora = true;          // só em memória: nunca persistir esta flag
+    if (criandoAgora) return; criandoAgora = true; bloquearBotoes();
     return BR.solicitar().then(function () { criandoAgora = false; destino("assinatura"); },
       function (e) { criandoAgora = false; S.res = /KYC_REJECTED/.test(String(e.message || e)) ? "kyc" : "recusada"; S.motivoReal = String(e.message || e); destino("recusada"); });
   }
   if (PAGE === "assinatura" && p === "acompanhamento" && S.appId && !S.assinadoReal) {
+    if (assinandoAgora) return; bloquearBotoes();
     return BR.assinar().then(function () { destino(p); }, function (e) { S.res = "recusada"; S.motivoReal = String(e.message || e); destino("recusada"); });
   }
   destino(p);

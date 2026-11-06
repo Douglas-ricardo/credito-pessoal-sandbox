@@ -6,7 +6,7 @@ Modo (variável CREDIT_MODE, do ambiente ou do .env.local):
   real      exige configuração válida; se faltar algo o servidor NÃO inicia (não cai em simulado).
   (vazio)   sem .env.local → simulado; com .env.local → real.
 """
-import datetime, json, os, re, sys, time
+import datetime, json, os, re, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -178,6 +178,75 @@ def ensure_person(d):
     raise ValueError(f'Cadastro do tomador recusado ({st}): {erro_api(st, js)}')
 
 
+def aguardar_contrato(consultar, timeout=60.0, espera=1.0, fator=1.5, maximo=5.0, dormir=None, relogio=None):
+    """Espera o contrato sair de AGREEMENT_RENDERING com recuo progressivo (1 s, 1,5 s, 2,25 s ... até 5 s).
+
+    Para por condição real: o status mudou (retorna a solicitação) ou o tempo total esgotou (ValueError).
+    `dormir` e `relogio` são injetáveis para teste.
+    """
+    dormir = dormir or time.sleep
+    relogio = relogio or time.monotonic
+    limite = relogio() + timeout
+    while True:
+        dormir(espera)
+        g = consultar()
+        if g['status'] != 'AGREEMENT_RENDERING':
+            return g
+        if relogio() >= limite:
+            raise ValueError(f'Tempo esgotado ({int(timeout)} s) esperando o contrato ficar pronto.')
+        espera = min(espera * fator, maximo)
+
+
+# Deduplicação de /api/solicitar. A documentação da Celcoin não traz chave de idempotência para a API de
+# Crédito (só ClientCode/ClientRequestId/externalNSU para BaaS, Pix, Débito Veicular e Pagamento de Contas), então
+# o servidor evita duplicidade sozinho. LIMITAÇÕES: vale só dentro deste processo e só por JANELA_DEDUP segundos
+# após o sucesso; reiniciar o servidor ou usar duas instâncias volta a permitir duplicidade.
+# TODO: perguntar à Celcoin se `external_id` ou algum cabeçalho de idempotência é aceito na criação de solicitações.
+JANELA_DEDUP = 120.0
+_dedup = {}
+_dedup_lock = threading.Lock()
+
+
+def chave_dedup(b):
+    d = b.get('dados') or {}
+    return (digits(d.get('cpf')), round(float(b['valor']), 2), int(b['n']), str(b['venc']))
+
+
+def solicitar_unico(b, agora=None):
+    """Como solicitar(), mas chamadas iguais (mesmo cpf, valor, n e vencimento) não criam duas solicitações."""
+    agora = agora or time.monotonic
+    chave = chave_dedup(b)
+    with _dedup_lock:
+        item = _dedup.get(chave)
+        if item and item['feito'].is_set() and item['erro'] is None and agora() - item['quando'] > JANELA_DEDUP:
+            item = None                                        # sucesso antigo: permite uma nova solicitação
+        if item is None:
+            item = {'feito': threading.Event(), 'resultado': None, 'erro': None, 'quando': agora()}
+            _dedup[chave] = item
+            dono = True
+        else:
+            dono = False
+    if not dono:
+        item['feito'].wait(timeout=120)
+        if item['erro'] is not None:
+            raise item['erro']
+        if item['resultado'] is None:
+            raise ValueError('Solicitação igual ainda em andamento; tente de novo em instantes.')
+        return item['resultado']
+    try:
+        item['resultado'] = solicitar(b)
+        item['quando'] = agora()
+        return item['resultado']
+    except Exception as e:
+        item['erro'] = e
+        with _dedup_lock:
+            if _dedup.get(chave) is item:
+                del _dedup[chave]                              # falhas não ficam em cache: dá para tentar de novo
+        raise
+    finally:
+        item['feito'].set()
+
+
 def solicitar(b):
     preview(b['valor'], b['n'], b['venc'])                                # valida antes de cadastrar
     bid = ensure_person(b['dados'])
@@ -187,12 +256,7 @@ def solicitar(b):
         'simulation_id': sim['id'], 'signature_provider': 'CELCOIN', 'signature_collect_method': 'NONE'})
     if st != 201:
         raise ValueError(f'Solicitação recusada ({st}): {erro_api(st, a)}')
-    g = a
-    for _ in range(20):                                                   # espera o contrato ser gerado
-        time.sleep(2)
-        st, g = C.call('GET', f"/banking/originator/applications/{a['id']}")
-        if g['status'] != 'AGREEMENT_RENDERING':
-            break
+    g = aguardar_contrato(lambda: C.call('GET', f"/banking/originator/applications/{a['id']}")[1])
     if g['status'] == 'CANCELED':                                         # KYC embarcado reprovou (ou cancelada) → tela de recusa
         raise ValueError('KYC_REJECTED' if g.get('status_description') == 'KYC_REJECTED' else 'CANCELED')
     if g['status'] != 'PENDING_SIGNATURE':
@@ -263,7 +327,7 @@ class H(BaseHTTPRequestHandler):
             if p == 'api/simular':
                 return self.json(200, resumo_sim(preview(b['valor'], b['n'], b['venc'])))
             if p == 'api/solicitar':
-                return self.json(200, solicitar(b))
+                return self.json(200, solicitar_unico(b))
             if p == 'api/retentar':
                 st, r = C.call('POST', f"/banking/originator/applications/{b['appId']}/disbursement-attempts", {})
                 if st not in (200, 201, 202):
