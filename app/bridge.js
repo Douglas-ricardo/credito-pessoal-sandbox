@@ -7,19 +7,30 @@ var BR = (function () {
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.erro || ("HTTP " + r.status)); return j; }); });
   }
   function aplicarReal() { if (S.real) { try { CET_TXT = pct(S.real.cet) + " ao ano"; } catch (e) {} } }
+  // Quando a Celcoin falha, mostra o erro em vez de cair em números ou itens do protótipo.
+  // Usa o mesmo texto e o mesmo botão do erro de simulação do desenho (tela de valor). A promessa nunca resolve:
+  // a tela original não é desenhada.
+  function erroBloqueante(titulo, detalhe) {
+    shell({ header: topbar("Seu crédito"),
+      main: title(titulo, "Tente de novo em instantes. Se continuar, fale com o suporte.") + alertBox("Erro ao falar com a Celcoin", String(detalhe), { destructive: true }),
+      footer: btn("Tentar de novo", { act: "recarregar" }) });
+    handlers.recarregar = function () { location.reload(); };
+    return new Promise(function () {});
+  }
   return {
     before: function (page) {
       return Promise.resolve().then(function () {
         aplicarReal();
         if (page === "solicitacoes") {
-          return api("POST", "/api/solicitacoes", { cpf: (S.dados && S.dados.cpf) || "" }).then(function (l) { S.lista = l; }, function () { S.lista = null; });
+          return api("POST", "/api/solicitacoes", { cpf: (S.dados && S.dados.cpf) || "" }).then(function (l) { S.lista = l; },
+            function (e) { return erroBloqueante("Não conseguimos carregar os seus créditos", e.message || e); });
         }
         if (page !== "resumo") return;
         var l = simLocal(), key = l.valor.toFixed(2) + "|" + S.n + "|" + S.venc;
         if (S.real && S.real.key === key) return;
         return api("POST", "/api/simular", { valor: l.valor, n: S.n, venc: S.venc }).then(function (r) {
           r.key = key; S.real = r; persist(); aplicarReal();
-        }, function (e) { S.realErro = String(e.message || e); });
+        }, function (e) { return erroBloqueante("Não conseguimos simular agora", e.message || e); });
       });
     },
     solicitar: function () {
