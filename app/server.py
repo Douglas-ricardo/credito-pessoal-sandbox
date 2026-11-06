@@ -145,6 +145,14 @@ def lista_item(a):
             'atual': a['status'] == 'ISSUED'}
 
 
+def caminho_de_fonte_valido(p):
+    """`p` já decodificado (ex.: "studio-fonts/Inter.woff2"). Só letras, números, ponto, hífen, barra e sublinhado; sem "..".
+
+    fullmatch (e não `$`) para que uma quebra de linha no final também seja recusada.
+    """
+    return bool(re.fullmatch(r'[A-Za-z0-9._/-]+', p)) and '..' not in p
+
+
 def digits(s):
     return re.sub(r'\D', '', s or '')
 
@@ -234,6 +242,8 @@ class H(BaseHTTPRequestHandler):
         if p == 'reset':
             return self.send(200, b'<script>sessionStorage.clear();location.href="/"</script>')
         if p.startswith('studio-fonts/'):
+            if not caminho_de_fonte_valido(p):                  # impede CR/LF (injeção de cabeçalho) e ".."
+                return self.send(400, 'Caminho de fonte inválido'.encode())
             self.send_response(302)
             self.send_header('Location', 'https://agents.celcoin.ai/' + p)
             self.end_headers()
