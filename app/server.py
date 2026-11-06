@@ -14,7 +14,8 @@ FUNDING_ID = 'f9405537-e99b-43d5-91fc-df23262c8cce'          # id do funding do 
 MAGIC_PIX = '4ca519ef-0ccc-4c41-b58b-c88f1f47d8ab'            # chave Pix mágica de teste da documentação
 TAXA_MES = 0.0299
 try:
-    sys.path.insert(0, HERE); import credit_client as C; REAL = True
+    sys.path.insert(0, HERE); import credit_client as C
+    C.configurar(C.load_env()); REAL = True
 except Exception as e:                                          # sem .env.local → simulado
     C = None; REAL = False; print('Modo simulado:', e, file=sys.stderr)
 
