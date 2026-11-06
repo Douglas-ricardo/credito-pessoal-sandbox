@@ -1,10 +1,19 @@
 """Servidor local (somente biblioteca padrão). Serve as 12 telas do Studio (../concepts), ligadas à API de Crédito
-do SANDBOX da Celcoin quando houver .env.local; sem ele, roda em modo simulado."""
+do SANDBOX da Celcoin no modo real, ou com dados do protótipo no modo simulado.
+
+Modo (variável CREDIT_MODE, do ambiente ou do .env.local):
+  simulado  nenhuma chamada à Celcoin.
+  real      exige configuração válida; se faltar algo o servidor NÃO inicia (não cai em simulado).
+  (vazio)   sem .env.local → simulado; com .env.local → real.
+"""
 import datetime, json, os, re, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import credit_client as C
+ConfigError = C.ConfigError
 DIR = os.path.join(HERE, '..', 'concepts')
 ROUTES = {'index': '00-ofertas', 'valor': '01-valor', 'vencimento': '02-vencimento', 'resumo': '03-resumo',
           'dados': '04-dados', 'preparando': '05-preparando', 'assinatura': '06-assinatura',
@@ -13,11 +22,41 @@ ROUTES = {'index': '00-ofertas', 'valor': '01-valor', 'vencimento': '02-vencimen
 FUNDING_ID = 'f9405537-e99b-43d5-91fc-df23262c8cce'          # id do funding do sandbox (não é segredo)
 MAGIC_PIX = '4ca519ef-0ccc-4c41-b58b-c88f1f47d8ab'            # chave Pix mágica de teste da documentação
 TAXA_MES = 0.0299
-try:
-    sys.path.insert(0, HERE); import credit_client as C
-    C.configurar(C.load_env()); REAL = True
-except Exception as e:                                          # sem .env.local → simulado
-    C = None; REAL = False; print('Modo simulado:', e, file=sys.stderr)
+MODO = 'simulado'
+REAL = False
+
+
+def resolver_modo(environ=None, env_file=None):
+    """Decide o modo e valida a configuração. Retorna (modo, config). Levanta ConfigError, nunca cai em simulado por erro."""
+    environ = os.environ if environ is None else environ
+    env_file = env_file or environ.get('CREDIT_ENV_FILE') or C.ENV_FILE_PADRAO
+    existe = os.path.isfile(env_file)
+    arquivo = {}
+    if existe:
+        try:
+            arquivo = C.load_env(env_file)
+        except (OSError, UnicodeDecodeError) as e:
+            raise ConfigError(f'Não consegui ler o arquivo de configuração ({type(e).__name__}).') from None
+    pedido = (environ.get('CREDIT_MODE') or arquivo.get('CREDIT_MODE') or '').strip().lower()
+    if pedido not in ('', 'real', 'simulado'):
+        raise ConfigError(f'CREDIT_MODE inválido: "{pedido}". Use "real" ou "simulado".')
+    if not pedido:
+        pedido = 'real' if existe else 'simulado'
+    if pedido == 'simulado':
+        return 'simulado', {}
+    cfg = {**arquivo, **{k: v for k, v in environ.items() if k.startswith('CREDIT_')}}
+    try:
+        C.configurar(cfg)
+    except ConfigError as e:
+        raise ConfigError(f'Modo real sem configuração válida: {e} (use CREDIT_MODE=simulado para rodar sem a API)') from None
+    return 'real', cfg
+
+
+def configurar(environ=None, env_file=None):
+    """Aplica o modo ao estado do servidor. Levanta ConfigError se o modo real estiver mal configurado."""
+    global MODO, REAL
+    modo, _ = resolver_modo(environ, env_file)
+    MODO, REAL = modo, modo == 'real'
 
 STORE = ('var store = (function(){try{var j=sessionStorage.getItem("credito");if(j)return JSON.parse(j)}catch(e){}'
          'return{cfg:{},s:{}}})(); store.cfg=store.cfg||{}; store.s=store.s||{};')
@@ -236,7 +275,16 @@ class H(BaseHTTPRequestHandler):
         pass
 
 
-if __name__ == '__main__':
+def main():
+    try:
+        configurar()
+    except ConfigError as e:
+        print(f'ERRO de configuração: {e}', file=sys.stderr)
+        sys.exit(2)
     port = int(os.environ.get('PORT', 3000))
-    print(f'http://localhost:{port}  ({"SANDBOX real" if REAL else "simulado"})')
+    print(f'http://localhost:{port}  (modo {"SANDBOX real" if REAL else "simulado"})', flush=True)
     ThreadingHTTPServer(('127.0.0.1', port), H).serve_forever()
+
+
+if __name__ == '__main__':
+    main()
